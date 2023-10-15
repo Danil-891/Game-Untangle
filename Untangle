@@ -1,0 +1,219 @@
+import random
+import sys
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPainter, QPen, QColor
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QDialog
+
+
+class StartMenu(QDialog):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Untangle")
+        self.setGeometry(400, 100, 800, 600)
+
+        start_button = QPushButton("Начать игру", self)
+        start_button.clicked.connect(self.start_game)
+
+        quit_button = QPushButton("Выход", self)
+        quit_button.clicked.connect(self.close)
+
+        layout = QVBoxLayout()
+        layout.addWidget(start_button)
+        layout.addWidget(quit_button)
+
+        self.setLayout(layout)
+
+    def start_game(self):
+        self.close()
+        self.game_window = LineGame()
+        self.game_window.show()
+
+
+class LineGame(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.clear_button = QPushButton("Очистить поле", self)
+        self.clear_button.clicked.connect(self.clear_game_field)
+
+        self.setWindowTitle("Игра: Распутывание линий")
+        self.setGeometry(100, 100, 800, 600)
+
+        self.showFullScreen()
+
+        self.lines = []
+        self.selected_line = None
+        self.line_indicators = []
+        self.max_lines = 20
+        self.lines_counter = 0
+
+        self.create_line_button = QPushButton("Добавить линии", self)
+        self.create_line_button.clicked.connect(self.create_random_line)
+
+        self.exit_game_button = QPushButton("Выйти из игры", self)
+        self.exit_game_button.clicked.connect(self.exit_game)
+
+        button_layout = QHBoxLayout()
+
+        button_layout.addWidget(self.create_line_button)
+
+        button_layout.addWidget(self.exit_game_button)
+
+        layout = QVBoxLayout()
+        layout.addStretch(1)
+        layout.addWidget(self.clear_button)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def exit_game(self):
+        self.close()
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.create_line_button)
+        button_layout.addWidget(self.return_to_menu_button)
+        layout = QVBoxLayout()
+        layout.addStretch(1)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def create_random_line(self):
+        num_lines_to_add = random.randint(5, 10)
+
+        for _ in range(num_lines_to_add):
+            if self.lines_counter < self.max_lines:
+                x1 = random.randint(0, self.width())
+                y1 = random.randint(self.height() // 4, 3 * self.height() // 4)
+                x2 = random.randint(0, self.width())
+                y2 = random.randint(self.height() // 4, 3 * self.height() // 4)
+
+                self.lines.append(((x1, y1), (x2, y2)))
+
+                indicator1 = Indicator()
+                indicator2 = Indicator()
+                self.line_indicators.append((indicator1, indicator2))
+
+                self.lines_counter += 1
+
+        self.update()
+
+        if self.lines_counter >= self.max_lines:
+            self.create_line_button.setEnabled(False)
+
+    def return_to_menu(self):
+        self.close()
+        start_menu = StartMenu()
+        start_menu.show()
+
+    def mousePressEvent(self, event):
+        for i, line in enumerate(self.lines):
+            if (line[0][0] - 5 <= event.x() <= line[0][0] + 5 and
+                    line[0][1] - 5 <= event.y() <= line[0][1] + 5):
+                self.selected_line = i
+            elif (line[1][0] - 5 <= event.x() <= line[1][0] + 5 and
+                  line[1][1] - 5 <= event.y() <= line[1][1] + 5):
+                self.selected_line = i
+
+    def mouseMoveEvent(self, event):
+        if self.selected_line is not None:
+            if 0 <= event.x() <= self.width() and 0 <= event.y() <= self.height():
+                if self.selected_line < len(self.lines):
+                    line = self.lines[self.selected_line]
+                    new_x, new_y = event.x(), event.y()
+                    if abs(new_x - line[0][0]) < abs(new_x - line[1][0]):
+                        self.lines[self.selected_line] = ((new_x, new_y), line[1])
+                    else:
+                        self.lines[self.selected_line] = (line[0], (new_x, new_y))
+
+                self.update()
+
+    def mouseReleaseEvent(self, event):
+        self.selected_line = None
+        if not self.check_lines_intersection():
+            self.show_victory_dialog()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        pen = QPen()
+        pen.setColor(QColor(0, 0, 0))
+        pen.setWidth(2)
+        painter.setPen(pen)
+
+        for i, line in enumerate(self.lines):
+            indicator1, indicator2 = self.line_indicators[i]
+            painter.drawLine(line[0][0], line[0][1], line[1][0], line[1][1])
+            indicator1.draw(painter, line[0])
+            indicator2.draw(painter, line[1])
+
+    def check_lines_intersection(self):
+        for i in range(len(self.lines)):
+            for j in range(i + 1, len(self.lines)):
+                if intersect(self.lines[i], self.lines[j]):
+                    return True
+        return False
+
+    def show_victory_dialog(self):
+        victory_dialog = QDialog(self)
+        victory_dialog.setWindowTitle("Победа!")
+
+        layout = QVBoxLayout()
+
+        victory_label = QLabel("Вы победили!")
+
+        layout.addWidget(victory_label)
+        victory_dialog.setLayout(layout)
+        victory_dialog.exec_()
+
+    def clear_game_field(self):
+        self.lines = []
+        self.line_indicators = []
+        self.lines_counter = 0
+        self.create_line_button.setEnabled(True)
+        self.update()
+
+
+class Indicator:
+    def __init__(self):
+        self.green = True
+
+    def toggle_color(self):
+        self.green = not self.green
+
+    def draw(self, painter, position):
+        radius = 5
+        if self.green:
+            painter.setBrush(Qt.green)
+        else:
+            painter.setBrush(Qt.green)
+        painter.drawEllipse(position[0] - radius, position[1] - radius, 2 * radius, 2 * radius)
+
+
+def intersect(l1, l2):
+    x1, y1 = l1[0]
+    x2, y2 = l1[1]
+    x3, y3 = l2[0]
+    x4, y4 = l2[1]
+
+    det = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if det == 0:
+        return False
+
+    px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / det
+    py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / det
+
+    if min(x1, x2) <= px <= max(x1, x2) and min(y1, y2) <= py <= max(y1, y2) and min(x3, x4) <= px <= max(x3,
+                                                                                                          x4) and min(
+        y3, y4) <= py <= max(y3, y4):
+        return True
+
+    return False
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    start_menu = StartMenu()
+    start_menu.show()
+    sys.exit(app.exec_())
